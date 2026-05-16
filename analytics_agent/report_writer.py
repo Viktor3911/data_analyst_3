@@ -4,9 +4,17 @@ from analytics_agent.agent import AnalysisReport
 
 
 class MarkdownReportWriter:
+
     def write(self, report: AnalysisReport, output_path: Path) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        lines = ["# Отчет LLM-аналитика", "", f"Модель: `{report.model}`", "", report.report_markdown.strip(), ""]
+        lines = [
+            "# Отчет LLM-аналитика",
+            "",
+            f"Модель: `{report.model}`",
+            "",
+            report.report_markdown.strip(),
+            "",
+        ]
 
         if report.artifacts:
             lines.append("## Артефакты")

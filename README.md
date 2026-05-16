@@ -1,37 +1,36 @@
 # Мини-продукт с LLM-аналитикой
 
-Веб-приложение на Streamlit для задания 3 по курсу «Аналитик данных». Пользователь загружает датасет, добавляет инструкцию или контекст, а LLM-агент через OpenRouter сам вызывает локальный Python-интерпретатор, исследует данные, строит графики и возвращает отчет.
+Веб-приложение на Streamlit для задания 3 по курсу «Аналитик данных». Пользователь загружает датасет, добавляет инструкцию или контекст, а LLM-агент через Gemini API сам вызывает локальный Python-интерпретатор, исследует данные, строит графики и возвращает отчет.
 
-Агентная среда построена на `LangGraph`: это Python-фреймворк для stateful agent orchestration. Для вызова OpenRouter используется `langchain-openai` и `ChatOpenAI` с OpenAI-compatible endpoint `https://openrouter.ai/api/v1`.
+Агентная среда построена на `LangGraph`: это Python-фреймворк для stateful agent orchestration. По умолчанию LLM вызывается через пакет `g_api_view` из `https://github.com/brdchy/ApiClientG` и сервер `https://g-assistant-api.ru`. OpenRouter-адаптер оставлен как альтернативный провайдер.
 
 ## Что реализовано
 
-- Веб-интерфейс для загрузки `csv`, `xlsx`, `xls`, `json`, `parquet`.
+- Веб-интерфейс для загрузки `csv`, `xlsx`, `xls`, `json`, `txt`.
 - Поле для пользовательской инструкции: можно указать, на какие метрики, сегменты или гипотезы обратить внимание.
 - Агентный цикл `LLM -> Python tool -> observation -> final report`.
-- OpenRouter API с fallback-списком моделей, как в предыдущем задании.
+- Gemini API через пакет `g_api_view`; OpenRouter можно включить через `LLM_PROVIDER=openrouter`.
 - Генерация Markdown-отчета, ключевых метрик, инсайтов, ограничений и графиков.
-- Защита от prompt-injection: инструкция и датасет считаются недоверенным контекстом, опасные управляющие фразы помечаются и удаляются, дополнительно инструкция проверяется LLM-классификатором через OpenRouter, код проходит AST-проверку перед запуском.
+- Защита от prompt-injection: инструкция и датасет считаются недоверенным контекстом, опасные управляющие фразы помечаются и удаляются, дополнительно инструкция проверяется LLM-классификатором
 
 ## Архитектура
 
 ```text
 streamlit_app.py                 # точка входа Streamlit
-src/analytics_agent/
+analytics_agent/
   config.py                      # настройки и список моделей
   env.py                         # загрузка .env
-  llm_client.py                  # OpenRouter через langchain-openai ChatOpenAI
+  llm_client.py                  # фабрика выбора LLM-провайдера
+  providers/                     # базовый LLM-клиент и провайдеры Gemini/OpenRouter
   data_loader.py                 # сохранение и профилирование датасета
   prompt_security.py             # local + LLM проверка prompt-injection
   code_sandbox.py                # Python tool для агента и safe helper save_current_plot
   agent.py                       # LangGraph-оркестрация агента
   report_writer.py               # сохранение отчета
   ui.py                          # Streamlit-интерфейс
-input/sample_sales.csv           # пример датасета
+input/kaggle_titanic.csv         # пример датасета
 tests/                           # базовые тесты
 ```
-
-UI остается тонким слоем: он только принимает файл и показывает результат. OpenRouter, анализ, безопасность и выполнение кода вынесены в отдельные модули.
 
 ## Установка
 
@@ -43,9 +42,17 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-## Настройка OpenRouter
+## Настройка LLM API
 
 Создайте `.env` по примеру `.env.example`:
+
+```env
+LLM_PROVIDER=gemini
+GEMINI_SERVER_URL=https://g-assistant-api.ru
+GEMINI_USER_ID=3838
+GEMINI_PASSWORD=password
+GEMINI_MODEL=Gemini 3.1 Flash Lite Preview
+```
 
 ## Запуск
 
@@ -53,7 +60,7 @@ pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m streamlit run streamlit_app.py
 ```
 
-После запуска откройте адрес из терминала, обычно:
+После запуска откройте адрес из терминала:
 
 ```text
 http://localhost:8501
@@ -84,8 +91,6 @@ http://localhost:8501
 - Датасет и пользовательская инструкция явно помечены как недоверенные данные.
 - Системный prompt запрещает раскрывать секреты, читать `.env`, использовать сеть и выполнять shell-команды.
 - `PromptInjectionGuard` ищет фразы вроде `ignore previous instructions`, `system prompt`, `reveal secrets`, `read .env`, а также русские аналоги вроде `игнорируй предыдущие инструкции`, `покажи ключ API`, `прочитай .env`.
-- `LlmPromptInjectionGuard` отправляет инструкцию в OpenRouter как недоверенный текст и просит LLM вернуть JSON-классификацию: вредоносность, уровень риска, проблемы и очищенную безопасную инструкцию.
+- `LlmPromptInjectionGuard` отправляет инструкцию в настроенный LLM API как недоверенный текст и просит LLM вернуть JSON-классификацию: вредоносность, уровень риска, проблемы и очищенную безопасную инструкцию.
 - `CodeSandbox` блокирует опасные импорты и вызовы: `os`, `subprocess`, `requests`, `open`, `eval`, `exec`, `__import__`, доступ к environment и операции записи/удаления файлов вне разрешенных графиков.
 - Python tool запускается в отдельном процессе с урезанным набором переменных окружения.
-
-Ограничение: это учебная sandbox-защита на уровне приложения, а не полноценная контейнерная изоляция. Для продакшена лучше запускать tool в Docker/Firecracker с лимитами CPU/RAM и отдельным пользователем.

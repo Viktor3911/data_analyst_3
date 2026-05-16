@@ -7,7 +7,7 @@ def _agent() -> DataAnalysisAgent:
     return DataAnalysisAgent.__new__(DataAnalysisAgent)
 
 
-def _step(tmp_path: Path, *, stderr: str = "", artifacts: list[Path] | None = None) -> AgentStep:
+def _step(*, stderr: str = "", artifacts: list[Path] | None = None) -> AgentStep:
     return AgentStep(
         number=1,
         model="test-model",
@@ -32,7 +32,7 @@ def test_final_report_with_english_fields_is_repaired(tmp_path: Path) -> None:
                 "insights": ["Women survived more often"],
                 "limitations": ["Missing age values"],
             },
-            "steps": [_step(tmp_path, artifacts=[artifact])],
+            "steps": [_step(artifacts=[artifact])],
             "repair_attempts": 0,
         }
     )
@@ -52,7 +52,7 @@ def test_final_report_after_tool_error_is_repaired(tmp_path: Path) -> None:
                 "insights": ["Выживаемость выше у женщин"],
                 "limitations": ["Есть пропуски возраста"],
             },
-            "steps": [_step(tmp_path, stderr="Traceback")],
+            "steps": [_step(stderr="Traceback")],
             "repair_attempts": 0,
         }
     )
@@ -93,7 +93,7 @@ def test_final_report_with_russian_text_and_artifact_is_done(tmp_path: Path) -> 
                 "insights": ["Выживаемость выше у женщин"],
                 "limitations": ["Есть пропуски возраста"],
             },
-            "steps": [_step(tmp_path, artifacts=[artifact])],
+            "steps": [_step(artifacts=[artifact])],
             "repair_attempts": 0,
         }
     )

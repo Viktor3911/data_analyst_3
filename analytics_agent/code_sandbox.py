@@ -8,7 +8,17 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-ALLOWED_IMPORT_ROOTS = {"pandas", "numpy", "matplotlib", "seaborn", "scipy", "sklearn", "math", "statistics", "json"}
+ALLOWED_IMPORT_ROOTS = {
+    "pandas",
+    "numpy",
+    "matplotlib",
+    "seaborn",
+    "scipy",
+    "sklearn",
+    "math",
+    "statistics",
+    "json",
+}
 BLOCKED_CALLS = {
     "open",
     "eval",
@@ -69,6 +79,7 @@ class UnsafeCodeError(ValueError):
 
 
 class CodeSandbox:
+
     def __init__(self, run_dir: Path, timeout_seconds: int) -> None:
         self.run_dir = run_dir
         self.timeout_seconds = timeout_seconds
@@ -78,7 +89,11 @@ class CodeSandbox:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
         self._validate(code)
-        logger.info("Sandbox execution started: dataset=%s run_dir=%s", dataset_path.name, self.run_dir)
+        logger.info(
+            "Sandbox execution started: dataset=%s run_dir=%s",
+            dataset_path.name,
+            self.run_dir,
+        )
 
         script_path = self.run_dir / "agent_step.py"
         script_path.write_text(self._build_script(code, dataset_path), encoding="utf-8")
@@ -96,7 +111,10 @@ class CodeSandbox:
                 check=False,
             )
         except subprocess.TimeoutExpired as error:
-            logger.warning("Sandbox execution timed out after %s seconds", self.timeout_seconds)
+            logger.warning(
+                "Sandbox execution timed out after %s seconds",
+                self.timeout_seconds,
+            )
             return CodeExecutionResult(
                 stdout=error.stdout or "",
                 stderr=f"Python tool timed out after {self.timeout_seconds} seconds.",
@@ -152,7 +170,10 @@ class CodeSandbox:
         if isinstance(function, ast.Attribute) and function.attr in BLOCKED_ATTRIBUTES:
             raise UnsafeCodeError(f"Blocked unsafe method call: {function.attr}")
 
-    def _validate_assignment(self, node: ast.Assign | ast.AnnAssign | ast.AugAssign) -> None:
+    def _validate_assignment(
+        self,
+        node: ast.Assign | ast.AnnAssign | ast.AugAssign,
+    ) -> None:
         targets = []
         if isinstance(node, ast.Assign):
             targets = list(node.targets)
@@ -162,7 +183,9 @@ class CodeSandbox:
         for target in targets:
             for name in self._assigned_names(target):
                 if name in PROTECTED_NAMES:
-                    raise UnsafeCodeError(f"Blocked reassignment of protected name: {name}")
+                    raise UnsafeCodeError(
+                        f"Blocked reassignment of protected name: {name}"
+                    )
 
     def _assigned_names(self, target: ast.AST) -> list[str]:
         if isinstance(target, ast.Name):
@@ -203,7 +226,11 @@ def save_current_plot(file_name="chart.png"):
 
     def _safe_environment(self) -> dict[str, str]:
         keys_to_keep = ["PATH", "SYSTEMROOT", "TEMP", "TMP"]
-        env = {key: value for key, value in os.environ.items() if key.upper() in keys_to_keep}
+        env = {
+            key: value
+            for key, value in os.environ.items()
+            if key.upper() in keys_to_keep
+        }
         env["PYTHONIOENCODING"] = "utf-8"
         env["MPLBACKEND"] = "Agg"
         mpl_config_dir = self.run_dir / "mpl_config"

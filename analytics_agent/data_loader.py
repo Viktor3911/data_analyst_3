@@ -5,7 +5,7 @@ from typing import Any
 import pandas as pd
 
 
-SUPPORTED_EXTENSIONS = {".csv", ".xlsx", ".xls", ".json", ".parquet"}
+SUPPORTED_EXTENSIONS = (".csv", ".xlsx", ".xls", ".json", ".txt")
 
 
 @dataclass(frozen=True)
@@ -32,13 +32,14 @@ class DatasetProfile:
 
 
 class DatasetStorage:
+
     def __init__(self, upload_dir: Path) -> None:
         self.upload_dir = upload_dir
 
     def save(self, file_name: str, content: bytes) -> Path:
         extension = Path(file_name).suffix.lower()
         if extension not in SUPPORTED_EXTENSIONS:
-            allowed = ", ".join(sorted(SUPPORTED_EXTENSIONS))
+            allowed = ", ".join(ext.lstrip(".") for ext in SUPPORTED_EXTENSIONS)
             raise ValueError(f"Unsupported file type. Allowed: {allowed}")
 
         self.upload_dir.mkdir(parents=True, exist_ok=True)
@@ -49,17 +50,29 @@ class DatasetStorage:
 
 
 class DatasetProfiler:
+
     def profile(self, dataset_path: Path) -> DatasetProfile:
         dataframe = read_dataframe(dataset_path)
-        sample = dataframe.head(5).where(pd.notnull(dataframe.head(5)), None).to_dict(orient="records")
+        sample = (
+            dataframe.head(5)
+            .where(pd.notnull(dataframe.head(5)), None)
+            .to_dict(orient="records")
+        )
+
         return DatasetProfile(
             file_name=dataset_path.name,
             extension=dataset_path.suffix.lower().lstrip("."),
             rows=int(dataframe.shape[0]),
             columns=int(dataframe.shape[1]),
             column_names=[str(column) for column in dataframe.columns],
-            dtypes={str(column): str(dtype) for column, dtype in dataframe.dtypes.items()},
-            missing_values={str(column): int(value) for column, value in dataframe.isna().sum().items()},
+            dtypes={
+                str(column): str(dtype)
+                for column, dtype in dataframe.dtypes.items()
+            },
+            missing_values={
+                str(column): int(value)
+                for column, value in dataframe.isna().sum().items()
+            },
             sample_records=sample,
         )
 
@@ -68,10 +81,11 @@ def read_dataframe(dataset_path: Path) -> pd.DataFrame:
     extension = dataset_path.suffix.lower()
     if extension == ".csv":
         return pd.read_csv(dataset_path)
-    if extension in {".xlsx", ".xls"}:
-        return pd.read_excel(dataset_path)
+    if extension == ".txt":
+        return pd.read_csv(dataset_path, sep=None, engine="python")
     if extension == ".json":
         return pd.read_json(dataset_path)
-    if extension == ".parquet":
-        return pd.read_parquet(dataset_path)
+    if extension in {".xlsx", ".xls"}:
+        return pd.read_excel(dataset_path)
+
     raise ValueError(f"Unsupported file extension: {extension}")

@@ -10,3 +10,4 @@ openpyxl>=3.1.0
 scikit-learn>=1.4.0
 scipy>=1.12.0
 pytest>=8.0.0
+git+https://github.com/brdchy/ApiClientG.git@v0.2.1

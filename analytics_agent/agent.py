@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from analytics_agent.code_sandbox import CodeSandbox, UnsafeCodeError
 from analytics_agent.config import AppConfig
 from analytics_agent.data_loader import DatasetProfile
-from analytics_agent.llm_client import OpenRouterClient
+from analytics_agent.providers.base import BaseLlmClient
 from analytics_agent.prompt_security import LlmPromptInjectionGuard, PromptInjectionGuard
 
 
@@ -78,10 +78,11 @@ class AgentState(TypedDict, total=False):
 
 
 class DataAnalysisAgent:
+
     def __init__(
         self,
         config: AppConfig,
-        client: OpenRouterClient,
+        client: BaseLlmClient,
         sandbox: CodeSandbox,
         progress_callback: ProgressCallback | None = None,
     ) -> None:
@@ -92,18 +93,36 @@ class DataAnalysisAgent:
         self.guard = PromptInjectionGuard()
         self.llm_guard = LlmPromptInjectionGuard(self.guard, self.client)
 
-    def analyze(self, dataset_path: Path, profile: DatasetProfile, user_instruction: str) -> AnalysisReport:
+    def analyze(
+        self,
+        dataset_path: Path,
+        profile: DatasetProfile,
+        user_instruction: str,
+    ) -> AnalysisReport:
         self._progress("Проверяю инструкцию на prompt injection...")
+
         safety = self.llm_guard.inspect(user_instruction)
-        instruction = safety.safe_instruction if safety.risk_level != "high" else "No extra instruction provided."
-        self._progress(f"Проверка безопасности завершена: уровень риска {safety.risk_level}.")
+        instruction = (
+            safety.safe_instruction
+            if safety.risk_level != "high"
+            else "No extra instruction provided."
+        )
+        self._progress(
+            f"Проверка безопасности завершена: уровень риска {safety.risk_level}."
+        )
+
         initial_state: AgentState = {
             "dataset_path": dataset_path,
-            "messages": self._initial_messages(profile, instruction, safety.warnings),
+            "messages": self._initial_messages(
+                profile,
+                instruction,
+                safety.warnings,
+            ),
             "steps": [],
             "repair_attempts": 0,
         }
         final_state = self._build_graph().invoke(initial_state)
+
         return self._build_report(
             final_state.get("used_model", "unknown"),
             final_state.get("action", {}),
@@ -113,11 +132,13 @@ class DataAnalysisAgent:
 
     def _progress(self, message: str) -> None:
         logger.info(message)
+
         if self.progress_callback is not None:
             self.progress_callback(message)
 
     def _build_graph(self):
         graph = StateGraph(AgentState)
+
         graph.add_node("call_llm", self._call_llm_node)
         graph.add_node("run_python_tool", self._run_python_tool_node)
         graph.add_node("repair_response", self._repair_response_node)
@@ -141,40 +162,75 @@ class DataAnalysisAgent:
 
     def _call_llm_node(self, state: AgentState) -> AgentState:
         step_number = len(state.get("steps", [])) + 1
+
         self._progress(f"Запрашиваю LLM: планирование шага {step_number}...")
+
         used_model, action = self.client.complete_json(state["messages"])
-        action_type = str(action.get("type", "unknown")) if isinstance(action, dict) else type(action).__name__
-        self._progress(f"LLM ответила моделью {used_model}: действие {action_type}.")
-        return {**state, "used_model": used_model, "action": action}
+        action_type = (
+            str(action.get("type", "unknown"))
+            if isinstance(action, dict)
+            else type(action).__name__
+        )
+        self._progress(
+            f"LLM ответила моделью {used_model}: действие {action_type}."
+        )
+
+        return {
+            **state,
+            "used_model": used_model,
+            "action": action,
+        }
 
     def _route_after_llm(self, state: AgentState) -> str:
         action_type = str(state.get("action", {}).get("type", "")).strip()
+
         if action_type == "final":
-            if not self._final_report_is_ready(state) and state.get("repair_attempts", 0) < 2:
+            if not self._final_report_is_ready(state) and state.get(
+                "repair_attempts",
+                0,
+            ) < 2:
                 return "repair"
+
             return "done"
+
         if action_type == "tool_call":
             if len(state.get("steps", [])) >= self.config.max_agent_steps:
                 return "force_final"
+
             return "tool"
+
         if state.get("repair_attempts", 0) >= 2:
             return "force_final"
+
         return "repair"
 
     def _repair_response_node(self, state: AgentState) -> AgentState:
         self._progress("Ответ LLM нужно исправить: отправляю уточнение агенту...")
+
         messages = [*state["messages"]]
-        messages.append({"role": "assistant", "content": json.dumps(state.get("action", {}), ensure_ascii=False)})
+        messages.append(
+            {
+                "role": "assistant",
+                "content": json.dumps(state.get("action", {}), ensure_ascii=False),
+            }
+        )
         messages.append({"role": "user", "content": self._repair_instruction(state)})
-        return {**state, "messages": messages, "repair_attempts": state.get("repair_attempts", 0) + 1}
+
+        return {
+            **state,
+            "messages": messages,
+            "repair_attempts": state.get("repair_attempts", 0) + 1,
+        }
 
     def _run_python_tool_node(self, state: AgentState) -> AgentState:
         action = state["action"]
         reason = str(action.get("reason", "Analyze dataset with Python")).strip()
         code = str(action.get("code", "")).strip()
+
         result_stdout = ""
         result_stderr = ""
         artifacts: list[Path] = []
+
         step_number = len(state.get("steps", [])) + 1
         self._progress(f"Запускаю Python tool, шаг {step_number}: {reason}")
 
@@ -184,9 +240,14 @@ class DataAnalysisAgent:
             result_stderr = result.stderr
             artifacts = result.artifacts
             if result.ok:
-                self._progress(f"Python tool завершился успешно, артефактов: {len(artifacts)}.")
+                self._progress(
+                    f"Python tool завершился успешно, артефактов: {len(artifacts)}."
+                )
             else:
-                self._progress(f"Python tool вернул ошибку, код {result.return_code}; агент попробует исправить код.")
+                self._progress(
+                    f"Python tool вернул ошибку, код {result.return_code}; "
+                    "агент попробует исправить код."
+                )
         except UnsafeCodeError as error:
             result_stderr = str(error)
             self._progress(f"Python tool заблокирован sandbox-защитой: {error}")
@@ -203,19 +264,60 @@ class DataAnalysisAgent:
                 artifacts=artifacts,
             ),
         ]
+
         messages = [*state["messages"]]
-        messages.append({"role": "assistant", "content": json.dumps(action, ensure_ascii=False)})
-        messages.append({"role": "user", "content": self._tool_observation(len(steps), result_stdout, result_stderr, artifacts)})
-        return {**state, "messages": messages, "steps": steps}
+        messages.append(
+            {
+                "role": "assistant",
+                "content": json.dumps(action, ensure_ascii=False),
+            }
+        )
+        messages.append(
+            {
+                "role": "user",
+                "content": self._tool_observation(
+                    len(steps),
+                    result_stdout,
+                    result_stderr,
+                    artifacts,
+                ),
+            }
+        )
+
+        return {
+            **state,
+            "messages": messages,
+            "steps": steps,
+        }
 
     def _force_final_node(self, state: AgentState) -> AgentState:
         self._progress("Достигнут лимит шагов агента, запрашиваю финальный отчет...")
-        messages = [*state["messages"]]
-        messages.append({"role": "user", "content": "No more tool calls are available. Return the final JSON report now."})
-        used_model, action = self.client.complete_json(messages, max_tokens=4000)
-        return {**state, "messages": messages, "used_model": used_model, "action": action}
 
-    def _initial_messages(self, profile: DatasetProfile, instruction: str, warnings: list[str]) -> list[dict[str, str]]:
+        messages = [*state["messages"]]
+        messages.append(
+            {
+                "role": "user",
+                "content": (
+                    "No more tool calls are available. Return the final JSON "
+                    "report now."
+                ),
+            }
+        )
+        used_model, action = self.client.complete_json(messages, max_tokens=4000)
+
+        return {
+            **state,
+            "messages": messages,
+            "used_model": used_model,
+            "action": action,
+        }
+
+    def _initial_messages(
+        self,
+        profile: DatasetProfile,
+        instruction: str,
+        warnings: list[str],
+    ) -> list[dict[str, str]]:
         user_content = (
             "Dataset profile generated by trusted application code:\n"
             f"{profile.to_prompt_text()}\n\n"
@@ -224,10 +326,21 @@ class DataAnalysisAgent:
             "Security guard warnings:\n"
             f"{warnings or 'No suspicious patterns detected.'}"
         )
-        return [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user_content}]
 
-    def _tool_observation(self, step_number: int, stdout: str, stderr: str, artifacts: list[Path]) -> str:
+        return [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ]
+
+    def _tool_observation(
+        self,
+        step_number: int,
+        stdout: str,
+        stderr: str,
+        artifacts: list[Path],
+    ) -> str:
         artifact_names = [path.name for path in artifacts]
+
         return json.dumps(
             {
                 "tool": "python_interpreter",
@@ -243,13 +356,17 @@ class DataAnalysisAgent:
         action = state.get("action", {})
         if not isinstance(action, dict):
             return False
+
         steps = state.get("steps", [])
         if not steps:
             return False
+
         if self._has_unresolved_tool_error(steps):
             return False
+
         if not self._has_any_artifact(steps):
             return False
+
         return self._is_russian_response(action)
 
     def _has_unresolved_tool_error(self, steps: list[AgentStep]) -> bool:
@@ -263,28 +380,61 @@ class DataAnalysisAgent:
         for field_name in ("metrics", "insights", "limitations"):
             visible_values.extend(str(item) for item in action.get(field_name, []))
         visible_text = "\n".join(value for value in visible_values if value.strip())
-        cyrillic_count = sum("а" <= char.lower() <= "я" or char.lower() == "ё" for char in visible_text)
+        cyrillic_count = sum(
+            "а" <= char.lower() <= "я" or char.lower() == "ё"
+            for char in visible_text
+        )
         latin_count = sum("a" <= char.lower() <= "z" for char in visible_text)
+
         return cyrillic_count > 0 and cyrillic_count >= latin_count
 
     def _repair_instruction(self, state: AgentState) -> str:
         if str(state.get("action", {}).get("type", "")).strip() != "final":
-            return "Return a valid tool_call or final JSON object according to the protocol."
+            return (
+                "Return a valid tool_call or final JSON object according to "
+                "the protocol."
+            )
         if not state.get("steps", []):
-            return "You must analyze the uploaded dataset with the Python interpreter first. Return a tool_call."
+            return (
+                "You must analyze the uploaded dataset with the Python interpreter "
+                "first. Return a tool_call."
+            )
         if self._has_unresolved_tool_error(state.get("steps", [])):
-            return "The previous Python tool call failed. Fix the Python code and return a new tool_call. Do not write the final report from stderr."
+            return (
+                "The previous Python tool call failed. Fix the Python code and "
+                "return a new tool_call. Do not write the final report from stderr."
+            )
         if not self._has_any_artifact(state.get("steps", [])):
-            return "The final report has no chart artifact. Build a useful matplotlib chart and call save_current_plot('chart.png'), then return a new tool_call."
+            return (
+                "The final report has no chart artifact. Build a useful matplotlib "
+                "chart and call save_current_plot('chart.png'), then return a new "
+                "tool_call."
+            )
         if not self._is_russian_response(state.get("action", {})):
-            return "Rewrite the final JSON so every visible field is in Russian: report_markdown, metrics, insights, and limitations."
-        return "Return a valid tool_call or final JSON object according to the protocol."
+            return (
+                "Rewrite the final JSON so every visible field is in Russian: "
+                "report_markdown, metrics, insights, and limitations."
+            )
 
-    def _build_report(self, model: str, action: Any, steps: list[AgentStep], warnings: list[str]) -> AnalysisReport:
+        return (
+            "Return a valid tool_call or final JSON object according to "
+            "the protocol."
+        )
+
+    def _build_report(
+        self,
+        model: str,
+        action: Any,
+        steps: list[AgentStep],
+        warnings: list[str],
+    ) -> AnalysisReport:
         artifacts = sorted({artifact for step in steps for artifact in step.artifacts})
+
         return AnalysisReport(
             model=model,
-            report_markdown=str(action.get("report_markdown", "LLM did not return a report.")),
+            report_markdown=str(
+                action.get("report_markdown", "LLM did not return a report.")
+            ),
             metrics=[str(item) for item in action.get("metrics", [])],
             insights=[str(item) for item in action.get("insights", [])],
             limitations=[str(item) for item in action.get("limitations", [])],

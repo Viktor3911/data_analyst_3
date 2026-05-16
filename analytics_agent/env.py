@@ -2,6 +2,7 @@ from pathlib import Path
 
 
 class DotEnvLoader:
+
     def __init__(self, env_path: Path) -> None:
         self.env_path = env_path
 
