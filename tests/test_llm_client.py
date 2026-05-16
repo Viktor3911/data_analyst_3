@@ -13,7 +13,6 @@ class FakeOpenRouterClient(OpenRouterClient):
         self,
         model: str,
         messages: list[dict[str, str]],
-        max_tokens: int,
         json_mode: bool,
     ) -> str:
         self.calls.append((model, json_mode))

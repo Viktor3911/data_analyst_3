@@ -22,10 +22,4 @@ class MarkdownReportWriter:
                 lines.append(f"- {artifact.name}")
             lines.append("")
 
-        if report.security_warnings:
-            lines.append("## Предупреждения защиты")
-            for warning in report.security_warnings:
-                lines.append(f"- {warning}")
-            lines.append("")
-
         output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")

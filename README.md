@@ -11,7 +11,7 @@
 - Агентный цикл `LLM -> Python tool -> observation -> final report`.
 - Gemini API через пакет `g_api_view`; OpenRouter можно включить через `LLM_PROVIDER=openrouter`.
 - Генерация Markdown-отчета, ключевых метрик, инсайтов, ограничений и графиков.
-- Защита от prompt-injection: инструкция и датасет считаются недоверенным контекстом, опасные управляющие фразы помечаются и удаляются, дополнительно инструкция проверяется LLM-классификатором
+- Защита от prompt-injection: инструкция и датасет считаются недоверенным контекстом, а инструкция отдельно проверяется LLM-классификатором перед запуском агента.
 
 ## Архитектура
 
@@ -23,7 +23,7 @@ analytics_agent/
   llm_client.py                  # фабрика выбора LLM-провайдера
   providers/                     # базовый LLM-клиент и провайдеры Gemini/OpenRouter
   data_loader.py                 # сохранение и профилирование датасета
-  prompt_security.py             # local + LLM проверка prompt-injection
+  prompt_security.py             # LLM проверка prompt-injection
   code_sandbox.py                # Python tool для агента и safe helper save_current_plot
   agent.py                       # LangGraph-оркестрация агента
   report_writer.py               # сохранение отчета
@@ -90,7 +90,6 @@ http://localhost:8501
 
 - Датасет и пользовательская инструкция явно помечены как недоверенные данные.
 - Системный prompt запрещает раскрывать секреты, читать `.env`, использовать сеть и выполнять shell-команды.
-- `PromptInjectionGuard` ищет фразы вроде `ignore previous instructions`, `system prompt`, `reveal secrets`, `read .env`, а также русские аналоги вроде `игнорируй предыдущие инструкции`, `покажи ключ API`, `прочитай .env`.
-- `LlmPromptInjectionGuard` отправляет инструкцию в настроенный LLM API как недоверенный текст и просит LLM вернуть JSON-классификацию: вредоносность, уровень риска, проблемы и очищенную безопасную инструкцию.
+- `LlmPromptInjectionGuard` отправляет инструкцию в настроенный LLM API как недоверенный текст и просит LLM вернуть JSON-классификацию с признаком вредоносности.
 - `CodeSandbox` блокирует опасные импорты и вызовы: `os`, `subprocess`, `requests`, `open`, `eval`, `exec`, `__import__`, доступ к environment и операции записи/удаления файлов вне разрешенных графиков.
 - Python tool запускается в отдельном процессе с урезанным набором переменных окружения.

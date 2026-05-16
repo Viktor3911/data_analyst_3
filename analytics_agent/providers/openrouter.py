@@ -24,7 +24,6 @@ class OpenRouterClient(BaseLlmClient):
     def complete_json(
         self,
         messages: list[dict[str, str]],
-        max_tokens: int = 3000,
     ) -> tuple[str, Any]:
         last_error: Exception | None = None
         failures: list[str] = []
@@ -45,7 +44,6 @@ class OpenRouterClient(BaseLlmClient):
                         content = self._complete(
                             model,
                             messages,
-                            max_tokens=max_tokens,
                             json_mode=json_mode,
                         )
                         logger.info(
@@ -105,7 +103,6 @@ class OpenRouterClient(BaseLlmClient):
         self,
         model: str,
         messages: list[dict[str, str]],
-        max_tokens: int,
         json_mode: bool,
     ) -> str:
         model_kwargs = (
@@ -119,7 +116,6 @@ class OpenRouterClient(BaseLlmClient):
             api_key=self.config.api_key,
             base_url=self.config.base_url,
             temperature=0.1,
-            max_tokens=max_tokens,
             timeout=self.config.llm_timeout_seconds,
             default_headers={
                 "HTTP-Referer": self.config.referer,
