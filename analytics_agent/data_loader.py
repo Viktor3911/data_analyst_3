@@ -6,6 +6,7 @@ import pandas as pd
 
 
 SUPPORTED_EXTENSIONS = (".csv", ".xlsx", ".xls", ".json", ".txt")
+CSV_ENCODINGS = ("utf-8-sig", "cp1252", "cp1251", "latin1")
 
 
 @dataclass(frozen=True)
@@ -80,12 +81,28 @@ class DatasetProfiler:
 def read_dataframe(dataset_path: Path) -> pd.DataFrame:
     extension = dataset_path.suffix.lower()
     if extension == ".csv":
-        return pd.read_csv(dataset_path)
+        return _read_csv_with_fallback(dataset_path)
     if extension == ".txt":
-        return pd.read_csv(dataset_path, sep=None, engine="python")
+        return _read_csv_with_fallback(dataset_path, sep=None, engine="python")
     if extension == ".json":
         return pd.read_json(dataset_path)
     if extension in {".xlsx", ".xls"}:
         return pd.read_excel(dataset_path)
 
     raise ValueError(f"Unsupported file extension: {extension}")
+
+
+def _read_csv_with_fallback(dataset_path: Path, **kwargs: Any) -> pd.DataFrame:
+    last_error: UnicodeDecodeError | None = None
+
+    for encoding in CSV_ENCODINGS:
+        try:
+            return pd.read_csv(dataset_path, encoding=encoding, **kwargs)
+        except UnicodeDecodeError as error:
+            last_error = error
+
+    message = (
+        f"Unable to decode CSV file {dataset_path.name} with supported encodings: "
+        f"{', '.join(CSV_ENCODINGS)}"
+    )
+    raise ValueError(message) from last_error
