@@ -16,6 +16,10 @@ class MarkdownReportWriter:
             "",
         ]
 
+        self._append_list(lines, "Ключевые метрики", report.metrics)
+        self._append_list(lines, "Инсайты", report.insights)
+        self._append_list(lines, "Ограничения", report.limitations)
+
         if report.artifacts:
             lines.append("## Артефакты")
             for artifact in report.artifacts:
@@ -23,3 +27,17 @@ class MarkdownReportWriter:
             lines.append("")
 
         output_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+    def _append_list(
+        self,
+        lines: list[str],
+        title: str,
+        items: list[str],
+    ) -> None:
+        if not items:
+            return
+
+        lines.append(f"## {title}")
+        for item in items:
+            lines.append(f"- {item}")
+        lines.append("")
